@@ -1,0 +1,41 @@
+trigger: none
+
+# Specify the operating system for the agent that runs on the Azure virtual
+# machine for the build pipeline (known as the build agent). As in this pipeline we are building
+# ARM templates, we can run our build agent on any operating system. 
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+
+  groupId: tx # Change this to a name that corresponds with your group (i.e. "g1" or "grp1")
+  databricksName: 'dataprime6db-$(groupId)' 
+  ResourceGroup: 'DB-$(groupId)-RG'
+  connectionName: 'Training Connection'
+  rLocation: 'uksouth' 
+  deploymentMode: 'Incremental'
+  subscriptionId: '91e4cd90-811e-45d3-a068-670b6f14f580'
+  
+stages: 
+  - stage: DeployResources
+    jobs:
+      - job: 'Create'
+        displayName: 'Create resources'
+        steps:
+
+        ## Deployment task inputs can be found here
+        # https://github.com/microsoft/azure-pipelines-tasks/blob/4718ac9183db21ba1e7526dea31dfb4ac9e67679/Tasks/AzureResourceManagerTemplateDeploymentV3/task.json
+
+        # Create a Databricks cluster
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'Deploy Databricks'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroup)
+            location: $(rLocation)
+            csmFile: './Databricks/databricks.json'
+            csmParameterfile: './Databricks/databricks.parameters.json'
+            overrideParameters: '-workspaceName $(databricksName)'
+            deploymentMode: $(deploymentMode)

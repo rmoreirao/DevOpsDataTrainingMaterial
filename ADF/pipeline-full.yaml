@@ -1,0 +1,394 @@
+# We are not specifying triggers for this pipeline, as the pipeline steps are long-running . 
+trigger: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+
+  workingDir: $(Build.Repository.LocalPath)/ADF/src
+  dataFactoryNamePrefix: 'dataprimem6-adf1'
+  ResourceGroupPrefix: 'ADF-RG'
+  connectionName: 'Training Connection'
+  rLocation: 'uksouth'
+  deploymentMode: 'Incremental'
+  subscriptionId: '91e4cd90-811e-45d3-a068-670b6f14f580'
+  resourceIdDev: /subscriptions/$(subscriptionId)/resourceGroups/$(resourceGroupPrefiX)-dev/providers/Microsoft.DataFactory/factories/$(dataFactoryNamePrefix)-dev
+  resourceIdUat: /subscriptions/$(subscriptionId)/resourceGroups/$(resourceGroupPrefix)-uat/providers/Microsoft.DataFactory/factories/$(dataFactoryNamePrefix)-uat
+  resourceIdProd: /subscriptions/$(subscriptionId)/resourceGroups/$(resourceGroupPrefix)-prod/providers/Microsoft.DataFactory/factories/$(dataFactoryNamePrefix)-prod
+
+stages: 
+  - stage: DeployResources
+    jobs:
+      - job: 'CreateDev'
+        displayName: 'Create DEV resources'
+        steps:
+
+        ## Deployment task inputs can be found here
+        # https://github.com/microsoft/azure-pipelines-tasks/blob/4718ac9183db21ba1e7526dea31dfb4ac9e67679/Tasks/AzureResourceManagerTemplateDeploymentV3/task.json
+
+        - task: Bash@3
+          displayName: 'Random generate a password'
+          inputs: 
+            targetType: 'inline'
+            script: |
+              password=$(cat /dev/urandom | tr -dc 'A-Za-z0-9_!@#$%^&*()\-+=' | head -c24)
+              echo "##vso[task.setvariable variable=password]$password"
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'DEV: Deploy KeyVault'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-dev
+            location: $(rLocation)
+            csmFile: './ADF/deploy/keyvault.bicep'
+            overrideParameters: '-keyvaultName $(dataFactoryNamePrefix)-dev-kv -objectId 0468e9e7-ad52-4071-8f3f-dbc99eda0add -secretName password -secretValue $(password)'
+            deploymentMode: $(deploymentMode)
+
+        - task: AzureKeyVault@2
+          inputs:
+            azureSubscription: 'Training Connection'
+            KeyVaultName: '$(dataFactoryNamePrefix)-dev-kv'
+            SecretsFilter: '*'
+            RunAsPreJob: false
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'DEV: Deploy SQL DB'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-dev
+            location: $(rLocation)
+            csmFile: './ADF/deploy/sql.bicep'
+            overrideParameters: '-administratorLogin dataprimeadmin -administratorLoginPassword $(password)'
+            deploymentMode: $(deploymentMode)
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'DEV: Deploy storage'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-dev
+            location: $(rLocation)
+            csmFile: './ADF/deploy/storage.bicep'
+            overrideParameters: ''
+            deploymentMode: $(deploymentMode)
+
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'DEV: Deploy Azure Data Factory'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-dev
+            location: $(rLocation)
+            csmFile: './ADF/deploy/adf-nonprod.bicep'
+            overrideParameters: '-dataFactoryName $(dataFactoryNamePrefix)-dev -location $(rLocation)'
+            deploymentMode: $(deploymentMode)
+
+      - job: CreateUAT
+        displayName: 'Create UAT resources'
+        steps:
+        - task: Bash@3
+          displayName: 'Random generate a password'
+          inputs: 
+            targetType: 'inline'
+            script: |
+              password=$(cat /dev/urandom | tr -dc 'A-Za-z0-9_!@#$%^&*()\-+=' | head -c24)
+              echo "##vso[task.setvariable variable=password]$password"
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'UAT: Deploy KeyVault'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-uat
+            location: $(rLocation)
+            csmFile: './ADF/deploy/keyvault.bicep'
+            overrideParameters: '-keyvaultName $(dataFactoryNamePrefix)-uat-kv -objectId 0468e9e7-ad52-4071-8f3f-dbc99eda0add -secretName password -secretValue $(password)'
+            deploymentMode: $(deploymentMode)
+
+        - task: AzureKeyVault@2
+          inputs:
+            azureSubscription: 'Training Connection'
+            KeyVaultName: '$(dataFactoryNamePrefix)-uat-kv'
+            SecretsFilter: '*'
+            RunAsPreJob: false
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'UAT: Deploy SQL DB'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-uat
+            location: $(rLocation)
+            csmFile: './ADF/deploy/sql.bicep'
+            overrideParameters: '-administratorLogin dataprimeadmin -administratorLoginPassword $(password)'
+            deploymentMode: $(deploymentMode)
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'UAT: Deploy storage'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-uat
+            location: $(rLocation)
+            csmFile: './ADF/deploy/storage.bicep'
+            overrideParameters: ''
+            deploymentMode: $(deploymentMode)
+
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'UAT: Deploy Azure Data Factory'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-uat
+            location: $(rLocation)
+            csmFile: './ADF/deploy/adf-nonprod.bicep'
+            overrideParameters: '-dataFactoryName $(dataFactoryNamePrefix)-uat -location $(rLocation)'
+            deploymentMode: $(deploymentMode)
+
+      - job: CreateProd
+        displayName: 'Create PROD resources'
+        steps:        
+        - task: Bash@3
+          displayName: 'Random generate a password'
+          inputs: 
+            targetType: 'inline'
+            script: |
+              password=$(cat /dev/urandom | tr -dc 'A-Za-z0-9_!@#$%^&*()\-+=' | head -c24)
+              echo "##vso[task.setvariable variable=password]$password"
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'PROD: Deploy KeyVault'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-prod
+            location: $(rLocation)
+            csmFile: './ADF/deploy/keyvault.bicep'
+            overrideParameters: '-keyvaultName $(dataFactoryNamePrefix)-prod-kv -objectId 0468e9e7-ad52-4071-8f3f-dbc99eda0add -secretName password -secretValue $(password)'
+            deploymentMode: $(deploymentMode)
+
+        - task: AzureKeyVault@2
+          inputs:
+            azureSubscription: 'Training Connection'
+            KeyVaultName: '$(dataFactoryNamePrefix)-prod-kv'
+            SecretsFilter: '*'
+            RunAsPreJob: false
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'PROD: Deploy SQL DB'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-prod
+            location: $(rLocation)
+            csmFile: './ADF/deploy/sql.bicep'
+            overrideParameters: '-administratorLogin dataprimeadmin -administratorLoginPassword $(password)'
+            deploymentMode: $(deploymentMode)
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'PROD: Deploy storage'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-prod
+            location: $(rLocation)
+            csmFile: './ADF/deploy/storage.bicep'
+            overrideParameters: ''
+            deploymentMode: $(deploymentMode)
+
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'PROD: Deploy Azure Data Factory'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroupPrefix)-prod
+            location: $(rLocation)
+            csmFile: './ADF/deploy/adf.bicep'
+            overrideParameters: '-dataFactoryName $(dataFactoryNamePrefix)-prod -location $(rLocation)'
+            deploymentMode: $(deploymentMode)
+      
+  - stage: Build
+    dependsOn: 
+      - DeployResources
+    jobs:
+      - job: 'build'
+        steps:
+        - task: NodeTool@0
+          inputs:
+            versionSpec: '14.x'
+          displayName: 'Installing node.js'
+
+        - task: Npm@1
+          inputs:
+            command: 'install'
+            verbose: true
+            workingDir: '$(workingDir)'
+          displayName: 'Installing npm package'
+
+        - task: Npm@1
+          inputs:
+            command: 'custom'
+            customCommand: 'run build validate $(workingDir) $(resourceIdDev)'
+            workingDir: '$(workingDir)'
+          displayName: 'Validate'
+        
+        # generating ARM Templates from source code
+        - task: Npm@1
+          inputs:
+            command: 'custom'
+            customCommand: 'run build export $(workingDir) $(resourceIdDev) artifacts'
+            workingDir: '$(workingDir)'
+          displayName: 'Generate ARM template'
+
+        - task: CopyFiles@2
+          inputs:
+            SourceFolder: '$(workingDir)/artifacts'
+            Contents: '**'
+            TargetFolder: '$(build.artifactstagingdirectory)/application' 
+          displayName: 'Copying application artifact'
+
+         # building bicep into ARM
+        - task: AzureCLI@2  
+          displayName: 'Build bicep artifact' 
+          inputs: 
+            azureSubscription: $(connectionName)
+            scriptType: 'pscore'  
+            scriptLocation: 'inlineScript'  
+            inlineScript: |
+              $file = "$(Build.SourcesDirectory)/ADF/deploy/adf-nonprod.bicep"            
+              New-Item -ItemType Directory -Force -Path $(build.artifactstagingdirectory)/infrastructure
+              az bicep build --file $file --outdir $(build.artifactstagingdirectory)/infrastructure
+       
+        - task: PublishPipelineArtifact@1
+          inputs:
+            targetPath: '$(build.artifactstagingdirectory)'
+            artifact: 'datafactory'
+            publishLocation: 'pipeline'
+
+  - stage: DEVDeploy
+    dependsOn: 
+      - Build
+    jobs:
+    - deployment: Publish_Dev
+      displayName: 'Development - publish'
+      environment: development
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - task: DownloadPipelineArtifact@2
+              displayName: Download Build Artifacts
+              inputs:
+                artifactName: datafactory
+                targetPath: '$(Pipeline.Workspace)'
+            
+            - script: dir
+              displayName: List files in Workspace
+              workingDirectory: '$(Pipeline.Workspace)'
+
+            - task: AzureResourceManagerTemplateDeployment@3
+              displayName: 'Publish to DEV'
+              inputs:
+                deploymentScope: Resource Group
+                azureResourceManagerConnection: $(connectionName)
+                subscriptionId: $(subscriptionId)
+                action: 'Create Or Update Resource Group'
+                resourceGroupName: $(resourceGroupPrefix)-dev
+                location: $(rLocation)
+                templateLocation: 'Linked artifact'
+                csmFile: '$(Pipeline.Workspace)/application/ARMTemplateForFactory.json'
+                csmParametersFile: '$(Pipeline.Workspace)/application/ARMTemplateParametersForFactory.json'
+                overrideParameters: '-factoryName "$(datafactoryNamePrefix)-dev" -LS_SalesDatabase_connectionString "$(DevSalesDbConnectionString)" -LS_DataLake_properties_typeProperties_url "$(DevDataLakeUrl)" -LS_KeyVault_properties_typeProperties_baseUrl "$(DevKeyVaultBaseUrl)"'
+                deploymentMode: 'Incremental'
+
+  - stage: UATDeploy
+    dependsOn: 
+      - Build
+    jobs:
+    - deployment: Publish_Uat
+      displayName: 'UAT - publish'
+      environment: UAT
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - task: DownloadPipelineArtifact@2
+              displayName: Download Build Artifacts
+              inputs:
+                artifactName: datafactory
+                targetPath: '$(Pipeline.Workspace)'
+            
+            - script: dir
+              displayName: List files in Workspace
+              workingDirectory: '$(Pipeline.Workspace)'
+
+            - task: AzureResourceManagerTemplateDeployment@3
+              displayName: 'Publish to UAT'
+              inputs:
+                deploymentScope: Resource Group
+                azureResourceManagerConnection: $(connectionName)
+                subscriptionId: $(subscriptionId)
+                action: 'Create Or Update Resource Group'
+                resourceGroupName: $(resourceGroupPrefix)-uat
+                location: $(rLocation)
+                templateLocation: 'Linked artifact'
+                csmFile: '$(Pipeline.Workspace)/application/ARMTemplateForFactory.json'
+                csmParametersFile: '$(Pipeline.Workspace)/application/ARMTemplateParametersForFactory.json'
+                overrideParameters: '-factoryName "$(datafactoryNamePrefix)-uat" -LS_SalesDatabase_connectionString "$(DevSalesDbConnectionString)" -LS_DataLake_properties_typeProperties_url "$(DevDataLakeUrl)" -LS_KeyVault_properties_typeProperties_baseUrl "$(DevKeyVaultBaseUrl)"'
+                deploymentMode: 'Incremental'
+
+
+  - stage: ProdDeploy
+    dependsOn: 
+      - Build
+    jobs:
+    - deployment: Publish_Prod
+      displayName: 'Production - publish'
+      environment: production
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - task: DownloadPipelineArtifact@2
+              displayName: Download Build Artifacts
+              inputs:
+                artifactName: datafactory
+                targetPath: '$(Pipeline.Workspace)'
+            
+            - script: dir
+              displayName: List files in Workspace
+              workingDirectory: '$(Pipeline.Workspace)'
+
+            - task: AzureResourceManagerTemplateDeployment@3
+              displayName: 'Publish to PROD'
+              inputs:
+                deploymentScope: Resource Group
+                azureResourceManagerConnection: $(connectionName)
+                subscriptionId: $(subscriptionId)
+                action: 'Create Or Update Resource Group'
+                resourceGroupName: $(resourceGroupPrefix)-prod
+                location: $(rLocation)
+                templateLocation: 'Linked artifact'
+                csmFile: '$(Pipeline.Workspace)/application/ARMTemplateForFactory.json'
+                csmParametersFile: '$(Pipeline.Workspace)/application/ARMTemplateParametersForFactory.json'
+                overrideParameters: '-factoryName "$(datafactoryNamePrefix)-prod" -LS_SalesDatabase_connectionString "$(DevSalesDbConnectionString)" -LS_DataLake_properties_typeProperties_url "$(DevDataLakeUrl)" -LS_KeyVault_properties_typeProperties_baseUrl "$(DevKeyVaultBaseUrl)"'
+                deploymentMode: 'Incremental'
+

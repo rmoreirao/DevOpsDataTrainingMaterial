@@ -1,0 +1,83 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+      "synapseWorkspace": {
+          "value": {
+              "Name": "module6synapseserv",
+              "subscriptionId": "898321ab-888a-455f-bfce-16a1f6e67755",
+              "resourceGroup": "Synapse-RG",
+              "properties": {
+                  "sqlAdminLogin": "sqladminuser",
+                  "initialWorkspaceAdminObjectId": "53018d2c-ecf4-4a80-8aed-08ed15110525"
+              }
+          }
+      },
+      "defaultADLSStorageAccount": {
+          "value": {
+              "Name": "module6synapsedl",
+              "URL": "module6synapsedl.dfs.core.windows.net",
+              "ExternalId": "/subscriptions/898321ab-888a-455f-bfce-16a1f6e67755/resourceGroups/Synapse-RG/providers/Microsoft.Storage/storageAccounts/module6synapsedl",
+              "subscriptionId": "898321ab-888a-455f-bfce-16a1f6e67755"
+          }
+      },
+      "auditingSettings": {
+          "value": {
+              "retentionDays": 0,
+              "auditActionsAndGroups": [],
+              "isStorageSecondaryKeyInUse": false,
+              "isAzureMonitorTargetEnabled": false,
+              "state": "Disabled",
+              "storageAccountSubscriptionId": "898321ab-888a-455f-bfce-16a1f6e67755"
+          }
+      },
+      "extendedAuditingSettings": {
+          "value": {
+              "retentionDays": 0,
+              "auditActionsAndGroups": [],
+              "isStorageSecondaryKeyInUse": false,
+              "isAzureMonitorTargetEnabled": false,
+              "state": "Disabled",
+              "storageAccountSubscriptionId": "898321ab-888a-455f-bfce-16a1f6e67755"
+          }
+      },
+      "firewallRules": {
+          "value": {
+              "startIpAddress": "0.0.0.0",
+              "endIpAddress": "255.255.255.255"
+          }
+      },
+      "integrationRuntimes": {
+          "value": {
+              "type": "Managed",
+              "typeProperties": {
+                  "computeProperties": {
+                      "location": "AutoResolve"
+                  }
+              }
+          }
+      },
+      "securityAlertPolicies": {
+          "value": {
+              "state": "Disabled",
+              "disabledAlerts": [""],
+              "emailAddresses": [""],
+              "emailAccountAdmins": false,
+              "retentionDays": 0
+          }
+      },
+      "roleAssignments": {
+          "value": {
+              "setWorkspaceIdentityRbacOnStorageAccount": true,
+              "storageBlobDataContributorRoleID": "ba92f5b4-2d11-453d-a403-e96b0029c9fe", 
+              "storageRoleUniqueId": "[newGuid()]"
+          }
+      },
+      "keyVaultName":{
+          "value": "module6kvdemo"
+      },
+      "synapsePassword" :{
+          "value": "RbYZ3*iLEogXXWDf8mwM"
+      }
+  }
+}

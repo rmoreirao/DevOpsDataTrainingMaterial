@@ -1,0 +1,209 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+      "synapseWorkspace": {
+          "type": "object"
+      },
+      "defaultADLSStorageAccount": {
+          "type": "object"
+      },
+      "auditingSettings": {
+          "type": "object"
+      },
+      "extendedAuditingSettings": {
+          "type": "object"
+      },
+      "firewallRules": {
+          "type": "object"
+      },
+      "integrationRuntimes": {
+          "type": "object"
+      },
+      "securityAlertPolicies": {
+          "type": "object"
+      },
+      "roleAssignments": {
+          "type": "object"
+      },
+      "keyVaultName":{
+          "type": "string"
+      },
+      "synapsePassword":{
+          "type": "securestring"
+      }
+    
+  },
+  "variables": {},
+  "resources": [
+      {
+          "type": "Microsoft.Synapse/workspaces",
+          "apiVersion": "2021-06-01",
+          "name": "[parameters('synapseWorkspace').Name]",
+          "location": "[resourceGroup().location]",
+          "identity": {
+              "type": "SystemAssigned"
+          },
+          "properties": {
+              "defaultDataLakeStorage": {
+                  "resourceId": "[parameters('defaultADLSStorageAccount').externalId]",
+                  "accountUrl": "[concat('https://', parameters('defaultADLSStorageAccount').URL)]",
+                  "filesystem": "root"
+              },
+              "encryption": {},
+              "connectivityEndpoints": {
+                  "web": "[concat('https://web.azuresynapse.net?workspace=%2fsubscriptions%2f', parameters('synapseWorkspace').subscriptionId, '%2fresourceGroups%2f', parameters('synapseWorkspace').resourceGroup, '%2fproviders%2fMicrosoft.Synapse%2fworkspaces%2f', parameters('synapseWorkspace').Name)]",
+                  "dev": "[concat('https://', parameters('synapseWorkspace').Name, '.dev.azuresynapse.net')]",
+                  "sqlOnDemand": "[concat(parameters('synapseWorkspace').Name, '-ondemand.sql.azuresynapse.net')]",
+                  "sql": "[concat(parameters('synapseWorkspace').Name, '.sql.azuresynapse.net')]"
+              },
+              "managedResourceGroupName": "[concat('rg-', parameters('synapseWorkspace').Name)]",
+              "sqlAdministratorLogin": "sqladminuser",
+              "sqlAdministratorLoginPassword": "[parameters('synapsePassword')]",
+              "privateEndpointConnections": [],
+              "publicNetworkAccess": "Enabled",
+              "cspWorkspaceAdminProperties": {
+                  "initialWorkspaceAdminObjectId": "53018d2c-ecf4-4a80-8aed-08ed15110525"
+              }
+          }
+      },
+      {
+          "type": "Microsoft.Synapse/workspaces/auditingSettings",
+          "apiVersion": "2021-06-01",
+          "name": "[concat(parameters('synapseWorkspace').Name, '/Default')]",
+          "dependsOn": [
+              "[resourceId('Microsoft.Synapse/workspaces', parameters('synapseWorkspace').Name)]"
+          ],
+          "properties": {
+              "retentionDays": "[parameters('auditingSettings').retentionDays]",
+              "auditActionsAndGroups": "[parameters('auditingSettings').auditActionsAndGroups]",
+              "isStorageSecondaryKeyInUse": "[parameters('auditingSettings').isStorageSecondaryKeyInUse]",
+              "isAzureMonitorTargetEnabled": "[parameters('auditingSettings').isAzureMonitorTargetEnabled]",
+              "state": "[parameters('auditingSettings').state]",
+              "storageAccountSubscriptionId": "[parameters('auditingSettings').storageAccountSubscriptionId]"
+          }
+      },
+      
+      {
+          "type": "Microsoft.Synapse/workspaces/extendedAuditingSettings",
+          "apiVersion": "2021-06-01",
+          "name": "[concat(parameters('synapseWorkspace').Name, '/Default')]",
+          "dependsOn": [
+              "[resourceId('Microsoft.Synapse/workspaces', parameters('synapseWorkspace').Name)]"
+          ],
+          "properties": {
+              "retentionDays": "[parameters('extendedAuditingSettings').retentionDays]",
+              "auditActionsAndGroups": "[parameters('extendedAuditingSettings').auditActionsAndGroups]",
+              "isStorageSecondaryKeyInUse": "[parameters('extendedAuditingSettings').isStorageSecondaryKeyInUse]",
+              "isAzureMonitorTargetEnabled": "[parameters('extendedAuditingSettings').isAzureMonitorTargetEnabled]",
+              "state": "[parameters('extendedAuditingSettings').state]",
+              "storageAccountSubscriptionId": "[parameters('extendedAuditingSettings').storageAccountSubscriptionId]"
+          }
+      },
+      {
+          "type": "Microsoft.Synapse/workspaces/firewallRules",
+          "apiVersion": "2021-06-01",
+          "name": "[concat(parameters('synapseWorkspace').Name, '/allowAll')]",
+          "dependsOn": [
+              "[resourceId('Microsoft.Synapse/workspaces', parameters('synapseWorkspace').Name)]"
+          ],
+          "properties": {
+              "startIpAddress": "[parameters('firewallRules').startIpAddress]",
+              "endIpAddress": "[parameters('firewallRules').endIpAddress]"
+          }
+      },
+      {
+          "type": "Microsoft.Synapse/workspaces/integrationruntimes",
+          "apiVersion": "2021-06-01",
+          "name": "[concat(parameters('synapseWorkspace').Name, '/AutoResolveIntegrationRuntime')]",
+          "dependsOn": [
+              "[resourceId('Microsoft.Synapse/workspaces', parameters('synapseWorkspace').Name)]"
+          ],
+          "properties": {
+              "type": "[parameters('integrationRuntimes').type]",
+              "typeProperties": "[parameters('integrationRuntimes').typeProperties]"
+          }
+      },
+      {
+          "type": "Microsoft.Synapse/workspaces/securityAlertPolicies",
+          "apiVersion": "2021-06-01",
+          "name": "[concat(parameters('synapseWorkspace').Name, '/Default')]",
+          "dependsOn": [
+              "[resourceId('Microsoft.Synapse/workspaces', parameters('synapseWorkspace').Name)]"
+          ],
+          "properties": {
+              "state": "[parameters('securityAlertPolicies').state]",
+              "disabledAlerts": "[parameters('securityAlertPolicies').disabledAlerts]",
+              "emailAddresses": "[parameters('securityAlertPolicies').emailAddresses]",
+              "emailAccountAdmins": "[parameters('securityAlertPolicies').emailAccountAdmins]",
+              "retentionDays": "[parameters('securityAlertPolicies').retentionDays]"
+          }
+      },
+      {
+          "condition": "[parameters('roleAssignments').setWorkspaceIdentityRbacOnStorageAccount]",
+          "apiVersion": "2019-05-01",
+          "name": "storageRoleDeploymentResource",
+          "type": "Microsoft.Resources/deployments",
+          "subscriptionId": "[subscription().subscriptionId]",
+          "resourceGroup": "Synapse-RG",
+          "dependsOn": [
+              "[concat('Microsoft.Synapse/workspaces/', parameters('synapseWorkspace').Name)]"
+          ],
+          "properties": {
+              "mode": "Incremental",
+              "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "parameters": {},
+                  "variables": {},
+                  "resources": [
+                      {
+                          "type": "Microsoft.Storage/storageAccounts/providers/roleAssignments",
+                          "apiVersion": "2018-09-01-preview",
+                          "name": "[concat(parameters('defaultADLSStorageAccount').Name, '/Microsoft.Authorization/',  guid(concat(resourceGroup().id, '/', parameters('roleAssignments').storageBlobDataContributorRoleID, '/', parameters('synapseWorkspace').Name, '/', parameters('roleAssignments').storageRoleUniqueId)))]",
+                          "location": "[resourceGroup().location]",
+                          "properties": {
+                              "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', parameters('roleAssignments').storageBlobDataContributorRoleID)]",
+                              "principalId": "[reference(concat('Microsoft.Synapse/workspaces/', parameters('synapseWorkspace').Name), '2019-06-01-preview', 'Full').identity.principalId]"
+                          }
+                      }
+                  ]
+              }
+          }
+      },
+      {
+          "type": "Microsoft.KeyVault/vaults/secrets",
+          "apiVersion": "2021-06-01-preview",
+          "name": "[concat(parameters('keyVaultName'), '/SynapseServerless')]",
+          "location": "[resourceGroup().location]",
+          "properties": {
+              "value": "[parameters('synapseWorkspace').Name]"
+          }
+      },
+      {
+          "type": "Microsoft.KeyVault/vaults/secrets",
+          "apiVersion": "2021-06-01-preview",
+          "name": "[concat(parameters('keyVaultName'), '/SynapseUser')]",
+          "location": "[resourceGroup().location]",
+          "properties": {
+              "value": "sqladminuser"
+          }
+      },
+      {
+          "type": "Microsoft.KeyVault/vaults/secrets",
+          "apiVersion": "2021-06-01-preview",
+          "name": "[concat(parameters('keyVaultName'), '/SynapsePassword')]",
+          "location": "[resourceGroup().location]",
+          "properties": {
+              "value": "[parameters('synapsePassword')]"
+          }
+      }
+      
+  ],
+"outputs": {
+  "synapseWorkspace": {
+    "type": "string",
+    "value": "[parameters('synapseWorkspace').Name]"
+  }
+}
+}

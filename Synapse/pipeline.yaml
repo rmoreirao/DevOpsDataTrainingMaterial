@@ -1,0 +1,113 @@
+trigger:
+  branches:
+    include:
+      - master
+  paths:
+    include:
+    - Synapse
+
+# You can also introduce parameters that you can use later in different stages of the pipeline. Just remember to introduce them as local variables!
+# You can introduce local variables from global parameters by definining:
+## ${{ parameters.globalparametername }}
+# The spaces in the definition are important! Remember that YAML is a stickler for syntax.
+
+variables:
+  groupId: t1 # Change this to a name that corresponds with your group (i.e. "g1" or "grp1"). As this is used in a keyvault name, do not add special characters. 
+  azureConnection: 'Training Connection'
+  location: 'uksouth'
+  resourceGroupName: 'Synapse-$(groupId)-RG'
+  keyvaultName: 'module6kvdemo$(groupId)'
+
+jobs:
+- job: DeployARM
+  displayName: Deploy ARM templates
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+
+    # Create a KeyVault that will store the secret created above to be used in later tasks.
+  - task: AzureResourceGroupDeployment@3
+    displayName: 'Deploy KeyVault'
+    inputs:
+      deploymentScope: 'Resource Group'
+      action: 'Create Or Update Resource Group'
+      ConnectedServiceName: 'Training Connection'
+      resourceGroupName: $(ResourceGroupName)
+      location: $(location)
+      csmFile: './Synapse/keyvault.bicep'
+      # Here we will give the service principal that is used by the Azure DevOps connection access to the keyvault, and will add the secret to the vault. 
+      overrideParameters: '-keyvaultName $(keyvaultName) -objectId 0468e9e7-ad52-4071-8f3f-dbc99eda0add'
+      deploymentMode: $(deploymentMode)
+
+  - task: AzureResourceManagerTemplateDeployment@3
+    displayName: 'Workspace Deployment'
+    inputs:
+      deploymentScope: 'Resource Group'
+      ConnectedServiceName: $(azureConnection)
+      resourceGroupName: $(resourceGroupName)
+      location: $(location)
+      csmFile: './Synapse/synapse.json'
+      csmParametersFile: './Synapse/synapse.parameters.json'
+     # It's important to output variables in the task, so we can use them later in another task 
+      overrideParameters: '-keyVaultName $(keyvaultName) -synapseWorkspace {"name": "synapsem6$(groupId)", "subscriptionId": "898321ab-888a-455f-bfce-16a1f6e67755", "properties.sqlAdminLogin": "sqladminuser", "properties.initialWorkspaceAdminObjectId": "53018d2c-ecf4-4a80-8aed-08ed15110525", "ResourceGroup": "$(resourceGroupName)"}'
+      deploymentOutputs: 'armOutputs'
+
+  - task: AzurePowerShell@5
+    displayName: Assign Workspace Admins
+    env:
+      ARM_OUTPUTS: $(armOutputs)
+    inputs:
+      azureSubscription: $(azureConnection)
+      ScriptType: 'InlineScript'
+      Inline: |
+        $output = $env:ARM_OUTPUTS | ConvertFrom-Json
+        $workspaceName = $output.synapseWorkspace.value
+        Install-Module -Name "Az.Synapse" -Confirm:$false  -Scope CurrentUser  -Force;
+        Import-Module Az.Synapse
+        try{
+          New-AzSynapseRoleAssignment -WorkspaceName $workspaceName -RoleDefinitionName "Synapse Administrator" -ObjectId "53018d2c-ecf4-4a80-8aed-08ed15110525" 
+        }
+        catch{
+          Write-Host "An error occurred:"
+          Write-Host $_
+        }
+        
+      azurePowerShellVersion: latestVersion
+      
+      
+- job: DeploySQLObjects
+  dependsOn: 
+     - DeployARM
+  displayName: Deploy SQL Objects for SQL Serverless
+
+  steps:
+
+  - task: AzureKeyVault@1
+    inputs:
+      azureSubscription: $(azureConnection)
+      KeyVaultName: $(keyvaultName)
+      SecretsFilter: '*'
+      RunAsPreJob: true
+
+  - task: PowerShell@2
+    displayName: 'Install dbops PoSh Module'
+    inputs:
+      targetType: 'inline'
+      script: 'Install-Module -Name dbops -Force -PassThru'
+
+
+  - task: PowerShell@2
+    displayName: 'Run Database creation scripts'
+    inputs:
+      targetType: 'inline'
+      script: |
+        $SecurePw=ConvertTo-SecureString $(SynapsePassword) -asplaintext -force
+        Install-DBOScript -ScriptPath './Synapse/scripts01' -sqlinstance $(SynapseServerless)-ondemand.sql.azuresynapse.net -UserName $(SynapseUser) -Password $($SecurePw) -SchemaVersionTable $null
+
+  - task: PowerShell@2
+    displayName: 'Run other database scripts'
+    inputs:
+      targetType: 'inline'
+      script: |
+        $SecurePw=ConvertTo-SecureString $(SynapsePassword) -asplaintext -force
+        Install-DBOScript -ScriptPath './Synapse/scripts02' -sqlinstance $(SynapseServerless)-ondemand.sql.azuresynapse.net -Database ServerlessSQL2 -UserName $(SynapseUser) -Password $($SecurePw) -SchemaVersionTable $null

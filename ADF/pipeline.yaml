@@ -1,0 +1,202 @@
+# https://learn.microsoft.com/en-us/azure/data-factory/continuous-integration-delivery-improvements
+# We are not specifying triggers for this pipeline, as the pipeline steps are long-running. 
+trigger: none
+
+# Specify the operating system for the agent that runs on the Azure virtual
+# machine for the build pipeline (known as the build agent). As in this pipeline we are building
+# ARM templates, we can run our build agent on any operating system. 
+pool:
+  vmImage: 'ubuntu-latest'
+
+
+parameters:
+  - name: TestParameter
+    default: "default value"
+    displayName: Test Parameter
+
+variables:
+
+  workingDir: $(Build.Repository.LocalPath)/ADF/src
+  groupId: t1 # Change this to a name that corresponds with your group (i.e. "g1" or "grp1"). Don't use any special characters! 
+  dataFactoryName: 'dataprimem6-$(groupId)' 
+  keyvaultName: 'dataprimem6$(groupId)'
+  ResourceGroup: 'ADF-$(groupId)-RG'
+  connectionName: 'Training Connection'
+  rLocation: 'uksouth'
+  deploymentMode: 'Incremental'
+  subscriptionId: '91e4cd90-811e-45d3-a068-670b6f14f580'
+  resourceId: /subscriptions/$(subscriptionId)/resourceGroups/$(resourceGroup)/providers/Microsoft.DataFactory/factories/$(dataFactoryName)
+
+stages: 
+  - stage: DeployResources
+    jobs:
+      - job: 'Create'
+        displayName: 'Create resources'
+        steps:
+
+        ## Deployment task inputs can be found here
+        # https://github.com/microsoft/azure-pipelines-tasks/blob/4718ac9183db21ba1e7526dea31dfb4ac9e67679/Tasks/AzureResourceManagerTemplateDeploymentV3/task.json
+
+        # echo "Starting script"
+        - script: echo "Starting script"
+          displayName: 'Starting script'
+
+
+        # We are creating and saving a randomly generated password, so we don't have to care about that actual value of it - and it can be kept a secret while still using it in a pipeline.
+        - task: Bash@3
+          displayName: 'Random generate a password'
+          inputs: 
+            targetType: 'inline'
+            script: |
+              password=$(cat /dev/urandom | tr -dc 'A-Za-z0-9_!@#$%^&*()\-+=' | head -c24)
+              echo "##vso[task.setvariable variable=password]$password"
+
+        # Create a KeyVault that will store the secret created above to be used in later tasks.
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'Deploy KeyVault'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroup)
+            location: $(rLocation)
+            csmFile: './ADF/deploy/keyvault.bicep'
+            # Here we will give the service principal that is used by the Azure DevOps connection access to the keyvault, and will add the secret to the vault. 
+            overrideParameters: '-keyvaultName $(keyvaultName) -objectId 0468e9e7-ad52-4071-8f3f-dbc99eda0add -secretName password -secretValue $(password)'
+            deploymentMode: $(deploymentMode)
+
+         # Next we'll retreive the secret again from the vault.
+        - task: AzureKeyVault@2
+          inputs:
+            azureSubscription: 'Training Connection'
+            KeyVaultName: '$(keyvaultName)'
+            SecretsFilter: '*'
+            RunAsPreJob: false
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'Deploy SQL DB'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroup)
+            location: $(rLocation)
+            csmFile: './ADF/deploy/sql.bicep'
+            # For this lab, we won't actually log in to the database, so we can use a randomly generated password we created before.
+            overrideParameters: '-administratorLogin dataprimeadmin -administratorLoginPassword $(password)'
+            deploymentMode: $(deploymentMode)
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'Deploy storage'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroup)
+            location: $(rLocation)
+            csmFile: './ADF/deploy/storage.bicep'
+            overrideParameters: ''
+            deploymentMode: $(deploymentMode)
+
+
+        - task: AzureResourceGroupDeployment@3
+          displayName: 'Deploy Azure Data Factory'
+          inputs:
+            deploymentScope: 'Resource Group'
+            action: 'Create Or Update Resource Group'
+            ConnectedServiceName: 'Training Connection'
+            resourceGroupName: $(ResourceGroup)
+            location: $(rLocation)
+            csmFile: './ADF/deploy/adf-nonprod.bicep'
+            overrideParameters: '-dataFactoryName $(dataFactoryName) -location $(rLocation)'
+            deploymentMode: $(deploymentMode)
+      
+  - stage: Build
+    dependsOn: 
+      - DeployResources
+    jobs:
+      # We are using a special Node.js based package to run the build of the ADF artifacts, so we need make sure we have the proper version installed in the agent.
+      - job: 'build'
+        steps:
+        - task: NodeTool@0
+          inputs:
+            versionSpec: '18.x'
+          displayName: 'Installing node.js'
+
+      # Also installing the package manager, NPM, to be able to run custom commands
+        - task: Npm@1
+          inputs:
+            command: 'install'
+            verbose: true
+            workingDir: '$(workingDir)'
+          displayName: 'Installing npm package'
+
+      # Run a validation on the Data Factory resource and the source folder we have in our repository
+        - task: Npm@1
+          inputs:
+            command: 'custom'
+            customCommand: 'run build validate $(workingDir) $(resourceId)'
+            workingDir: '$(workingDir)'
+          displayName: 'Validate'
+        
+        # generating Data Factory ARM Templates from source code
+        - task: Npm@1
+          inputs:
+            command: 'custom'
+            customCommand: 'run build export $(workingDir) $(resourceId) artifacts'
+            workingDir: '$(workingDir)'
+          displayName: 'Generate ARM template'
+
+        # Copy the files in our repository in to an artifact staging location
+        - task: CopyFiles@2
+          inputs:
+            SourceFolder: '$(workingDir)/artifacts'
+            Contents: '**'
+            TargetFolder: '$(build.artifactstagingdirectory)/application' 
+          displayName: 'Copying application artifact'
+
+        # publish the artifact "datafactory" from the files we added in to the staging location
+        - task: PublishPipelineArtifact@1
+          inputs:
+            targetPath: '$(build.artifactstagingdirectory)'
+            artifact: 'datafactory'
+            publishLocation: 'pipeline'
+
+  - stage: Deploy
+    dependsOn: 
+      - Build
+    jobs:
+    - deployment: Publish
+      displayName: 'Publish'
+      environment: development
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+
+            # Download the artifact we created in the previous task
+            - task: DownloadPipelineArtifact@2
+              displayName: Download Build Artifacts
+              inputs:
+                artifactName: datafactory
+                targetPath: '$(Pipeline.Workspace)'
+            
+            - script: dir
+              displayName: List files in Workspace
+              workingDirectory: '$(Pipeline.Workspace)'
+
+            # Publish the ARM templates in to the Data Factory instance
+            - task: AzureResourceManagerTemplateDeployment@3
+              displayName: 'Publish to DEV'
+              inputs:
+                deploymentScope: Resource Group
+                azureResourceManagerConnection: $(connectionName)
+                subscriptionId: $(subscriptionId)
+                action: 'Create Or Update Resource Group'
+                resourceGroupName: $(resourceGroup)
+                location: $(rLocation)
+                templateLocation: 'Linked artifact'
+                csmFile: '$(Pipeline.Workspace)/application/ARMTemplateForFactory.json'
+                csmParametersFile: '$(Pipeline.Workspace)/application/ARMTemplateParametersForFactory.json'
+                overrideParameters: '-factoryName "$(datafactoryName)" -LS_SalesDatabase_connectionString "$(DevSalesDbConnectionString)" -LS_DataLake_properties_typeProperties_url "$(DevDataLakeUrl)" -LS_KeyVault_properties_typeProperties_baseUrl "$(DevKeyVaultBaseUrl)"'
+                deploymentMode: 'Incremental'
